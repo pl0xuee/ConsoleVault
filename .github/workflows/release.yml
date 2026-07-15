@@ -40,9 +40,14 @@ jobs:
           pacman -Syu --noconfirm --needed \
             base-devel git curl wget file \
             rust nodejs npm \
-            webkit2gtk-4.1 gtk3 librsvg \
+            webkit2gtk-4.1 gtk3 librsvg gdk-pixbuf2 \
+            hicolor-icon-theme \
             patchelf openssl fuse2 \
             xdg-utils desktop-file-utils shared-mime-info
+          # The linuxdeploy GTK plugin copies the gdk-pixbuf loaders dir + cache;
+          # make sure both exist in this minimal container.
+          gdk-pixbuf-query-loaders --update-cache
+          ls -la /usr/lib/gdk-pixbuf-2.0/2.10.0/ || true
 
       - name: Checkout
         uses: actions/checkout@v4
