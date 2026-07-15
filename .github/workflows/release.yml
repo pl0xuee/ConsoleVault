@@ -36,7 +36,8 @@ jobs:
             base-devel git curl wget file \
             rust nodejs npm \
             webkit2gtk-4.1 gtk3 librsvg \
-            patchelf openssl fuse2
+            patchelf openssl fuse2 \
+            xdg-utils desktop-file-utils shared-mime-info
 
       - name: Checkout
         uses: actions/checkout@v4
