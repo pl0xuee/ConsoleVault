@@ -3,6 +3,12 @@ name: Release
 # Build the Linux AppImage and attach it to a GitHub Release whenever a
 # version tag (e.g. v0.1.0) is pushed. The release is created as a draft so you
 # can review the assets and edit notes before publishing.
+#
+# The build runs inside an Arch Linux container ON PURPOSE: AppImages bundle the
+# host's WebKitGTK, and Ubuntu's older WebKit fails to initialise EGL on modern
+# rolling-release distros (blank/white window). Building on Arch bundles a recent
+# WebKit (2.5x) that renders correctly. Trade-off: the resulting AppImage needs a
+# reasonably recent glibc, so it targets modern distros.
 on:
   push:
     tags:
@@ -14,37 +20,30 @@ permissions:
 
 jobs:
   appimage:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    env:
+      # AppImage tooling (linuxdeploy/appimagetool) can't use FUSE inside a
+      # container, so tell it to extract-and-run instead of mounting.
+      APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
+      # Installed before checkout so `git` exists for actions/checkout, and so the
+      # build uses Arch's current toolchain + WebKit.
+      - name: Install system dependencies (Arch)
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git curl wget file \
+            rust nodejs npm \
+            webkit2gtk-4.1 gtk3 librsvg \
+            patchelf openssl fuse2
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Tauri v2 build/runtime libraries for the AppImage (webkit2gtk 4.1).
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            build-essential \
-            curl wget file \
-            libxdo-dev \
-            libssl-dev
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
+      # Checkout runs as root in the container; avoid git "dubious ownership".
+      - name: Trust workspace
+        run: git config --global --add safe.directory '*'
 
       - name: Install frontend dependencies
         run: npm ci
@@ -60,7 +59,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "ConsoleVault ${{ github.ref_name }}"
-          releaseBody: "Download the `.AppImage` below, then `chmod +x` and run it."
+          releaseBody: "Download the `.AppImage` below, then `chmod +x` and run it. Requires a recent Linux (glibc 2.38+)."
           releaseDraft: true
           prerelease: false
           # bundle.targets in tauri.conf.json is already ["appimage"]; this keeps
