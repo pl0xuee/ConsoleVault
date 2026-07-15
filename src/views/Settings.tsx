@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getConfig, saveConfig, SYSTEM_LABELS, type AppConfig } from "../lib/ipc";
+import { UpdatesSection } from "../components/UpdatesSection";
 
 const SYSTEMS = ["snes", "n64", "ps1", "ps2", "ps3"];
 
@@ -78,6 +79,8 @@ export function Settings({ onSaved }: { onSaved?: (c: AppConfig) => void }) {
           </div>
         ))}
       </div>
+
+      <UpdatesSection />
     </div>
   );
 }

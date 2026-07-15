@@ -288,6 +288,35 @@ input:focus-visible {
   font-size: 13px;
 }
 
+/* Updates */
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.update-text {
+  flex: 1;
+}
+.update-title {
+  font-weight: 600;
+}
+.update-sub {
+  font-size: 13px;
+  margin-top: 2px;
+}
+button.has-update {
+  animation: update-pulse 1.9s ease-in-out infinite;
+}
+@keyframes update-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(90, 140, 166, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(90, 140, 166, 0);
+  }
+}
+
 /* Log console */
 .console {
   background: #12171b;
