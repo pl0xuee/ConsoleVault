@@ -29,6 +29,9 @@ jobs:
     env:
       # Belt-and-suspenders: also allow extract-and-run if FUSE is unavailable.
       APPIMAGE_EXTRACT_AND_RUN: 1
+      # linuxdeploy's bundled `strip` is too old for Arch's modern libraries
+      # (fails on the `.relr.dyn` ELF section), which aborts bundling. Skip strip.
+      NO_STRIP: "true"
     steps:
       # Installed before checkout so `git` exists for actions/checkout, and so the
       # build uses Arch's current toolchain + WebKit.
