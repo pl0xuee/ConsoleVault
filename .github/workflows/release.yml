@@ -23,9 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
+      # --privileged exposes /dev/fuse so the AppImage tooling
+      # (linuxdeploy/appimagetool, themselves AppImages) can mount and run.
+      options: --privileged
     env:
-      # AppImage tooling (linuxdeploy/appimagetool) can't use FUSE inside a
-      # container, so tell it to extract-and-run instead of mounting.
+      # Belt-and-suspenders: also allow extract-and-run if FUSE is unavailable.
       APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
       # Installed before checkout so `git` exists for actions/checkout, and so the
