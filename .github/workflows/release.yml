@@ -44,10 +44,14 @@ jobs:
             hicolor-icon-theme \
             patchelf openssl fuse2 \
             xdg-utils desktop-file-utils shared-mime-info
-          # The linuxdeploy GTK plugin copies the gdk-pixbuf loaders dir + cache;
-          # make sure both exist in this minimal container.
-          gdk-pixbuf-query-loaders --update-cache
-          ls -la /usr/lib/gdk-pixbuf-2.0/2.10.0/ || true
+          # Modern Arch gdk-pixbuf builds loaders in, so /usr/lib/gdk-pixbuf-2.0/2.10.0
+          # doesn't exist unless an external loader package created it. The linuxdeploy
+          # GTK plugin insists on copying that dir, so create it + a loaders cache.
+          mkdir -p /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders
+          gdk-pixbuf-query-loaders --update-cache \
+            || gdk-pixbuf-query-loaders > /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache \
+            || touch /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
+          ls -la /usr/lib/gdk-pixbuf-2.0/2.10.0/
 
       - name: Checkout
         uses: actions/checkout@v4
