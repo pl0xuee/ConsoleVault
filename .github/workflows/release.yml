@@ -51,7 +51,6 @@ jobs:
           gdk-pixbuf-query-loaders --update-cache \
             || gdk-pixbuf-query-loaders > /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache \
             || touch /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
-          ls -la /usr/lib/gdk-pixbuf-2.0/2.10.0/
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,20 +79,3 @@ jobs:
           # bundle.targets in tauri.conf.json is already ["appimage"]; this keeps
           # the CI intent explicit and future-proof if that changes.
           args: --bundles appimage
-
-      # Tauri swallows linuxdeploy's output; on failure, rerun it by hand on the
-      # AppDir Tauri already created so we can see the real error.
-      - name: Diagnose linuxdeploy failure
-        if: failure()
-        run: |
-          set -x
-          cd src-tauri/target/release/bundle/appimage || { ls -la src-tauri/target/release/bundle || true; exit 0; }
-          ls -la
-          APPDIR=$(ls -d *.AppDir 2>/dev/null | head -1); echo "APPDIR=$APPDIR"
-          [ -z "$APPDIR" ] && exit 0
-          curl -sL https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage -o ld.AppImage
-          curl -sL https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh -o linuxdeploy-plugin-gtk.sh
-          chmod +x ld.AppImage linuxdeploy-plugin-gtk.sh
-          export APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=true
-          echo "=== manual linuxdeploy run ==="
-          ./ld.AppImage --appdir "$APPDIR" --plugin gtk --output appimage 2>&1 | tail -80 || echo "manual linuxdeploy exit: $?"
