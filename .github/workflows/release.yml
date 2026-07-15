@@ -1,0 +1,64 @@
+name: Release
+
+# Build the Linux AppImage and attach it to a GitHub Release whenever a
+# version tag (e.g. v0.1.0) is pushed. The release is created as a draft so you
+# can review the assets and edit notes before publishing.
+on:
+  push:
+    tags:
+      - "v*"
+
+# tauri-action needs write access to create the release and upload assets.
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Tauri v2 build/runtime libraries for the AppImage (webkit2gtk 4.1).
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl wget file \
+            libxdo-dev \
+            libssl-dev
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build AppImage and publish draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "ConsoleVault ${{ github.ref_name }}"
+          releaseBody: "Download the `.AppImage` below, then `chmod +x` and run it."
+          releaseDraft: true
+          prerelease: false
+          # bundle.targets in tauri.conf.json is already ["appimage"]; this keeps
+          # the CI intent explicit and future-proof if that changes.
+          args: --bundles appimage
