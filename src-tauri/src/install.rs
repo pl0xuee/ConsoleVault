@@ -2,6 +2,7 @@
 //! build from the project's official upstream GitHub. The AUR is never used.
 
 use crate::registry::{self, EmulatorDef};
+use crate::{detect, syscmd};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -110,6 +111,114 @@ pub fn install(app: &AppHandle, system: &str, method: InstallMethod) -> Result<(
     }
 }
 
+/// A previewable uninstall plan: the exact commands that would run, resolved
+/// from what is actually installed right now.
+#[derive(Debug, Clone, Serialize)]
+pub struct UninstallPlan {
+    pub system: String,
+    pub emulator: String,
+    /// Human-readable commands, shown to the user before they confirm.
+    pub commands: Vec<String>,
+}
+
+/// One concrete uninstall step, chosen from the sources currently present.
+enum UninstallAction {
+    /// Remove a per-user Flatpak app.
+    Flatpak(&'static str),
+    /// Remove an official-repo package via pacman (needs pkexec).
+    Pacman(&'static str),
+    /// Delete a build-from-source cache directory.
+    SourceCache(std::path::PathBuf),
+}
+
+/// Resolve which uninstall steps apply to `def` given what's installed now.
+fn uninstall_actions(app: &AppHandle, def: &EmulatorDef) -> Vec<UninstallAction> {
+    let mut actions = Vec::new();
+    if let Some(id) = def.flatpak_id {
+        // Only the per-user scope, matching how we install (`flatpak --user`).
+        if detect::flatpak_installed_user(id) {
+            actions.push(UninstallAction::Flatpak(id));
+        }
+    }
+    if let Some(pkg) = def.pacman_pkg {
+        if pacman_installed(pkg) {
+            actions.push(UninstallAction::Pacman(pkg));
+        }
+    }
+    if let Ok(cache) = app.path().app_cache_dir() {
+        let dir = cache.join("build").join(def.system);
+        if dir.exists() {
+            actions.push(UninstallAction::SourceCache(dir));
+        }
+    }
+    actions
+}
+
+/// Human-readable command for an uninstall action (for the preview).
+fn describe_action(action: &UninstallAction) -> String {
+    match action {
+        UninstallAction::Flatpak(id) => format!("flatpak uninstall --user -y {id}"),
+        UninstallAction::Pacman(pkg) => format!("pkexec pacman -Rns --noconfirm {pkg}"),
+        UninstallAction::SourceCache(dir) => format!("rm -rf {}", dir.display()),
+    }
+}
+
+/// Build a preview of what uninstalling `system` would do.
+pub fn uninstall_plan(app: &AppHandle, system: &str) -> Result<UninstallPlan, String> {
+    let def = registry::find(system).ok_or_else(|| format!("unknown system: {system}"))?;
+    let commands = uninstall_actions(app, def)
+        .iter()
+        .map(describe_action)
+        .collect();
+    Ok(UninstallPlan {
+        system: def.system.to_string(),
+        emulator: def.emulator.to_string(),
+        commands,
+    })
+}
+
+/// Uninstall `system` by undoing every install source currently present,
+/// streaming output as `install-log` events (shared with the install flow).
+pub fn uninstall(app: &AppHandle, system: &str) -> Result<(), String> {
+    let def = registry::find(system).ok_or_else(|| format!("unknown system: {system}"))?;
+    let actions = uninstall_actions(app, def);
+    if actions.is_empty() {
+        let msg = format!("{} does not appear to be installed.", def.emulator);
+        emit(app, system, &msg);
+        return Err(msg);
+    }
+    emit(app, system, &format!("== Uninstalling {} ==", def.emulator));
+
+    for action in &actions {
+        match action {
+            UninstallAction::Flatpak(id) => {
+                run(app, system, "flatpak", &["uninstall", "--user", "-y", id], None)?;
+            }
+            UninstallAction::Pacman(pkg) => {
+                run(app, system, "pkexec", &["pacman", "-Rns", "--noconfirm", pkg], None)?;
+            }
+            UninstallAction::SourceCache(dir) => {
+                emit(app, system, &format!("$ rm -rf {}", dir.display()));
+                std::fs::remove_dir_all(dir)
+                    .map_err(|e| format!("failed to remove build cache: {e}"))?;
+            }
+        }
+    }
+    emit(app, system, "Done.");
+    Ok(())
+}
+
+/// Whether an official-repo package is installed (`pacman -Q <pkg>` succeeds).
+fn pacman_installed(pkg: &str) -> bool {
+    syscmd::command("pacman")
+        .args(["-Q", pkg])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Fail early with a clear message if flatpak itself is missing.
 fn ensure_flatpak(app: &AppHandle, system: &str) -> Result<(), String> {
     if which("flatpak") {
@@ -120,8 +229,40 @@ fn ensure_flatpak(app: &AppHandle, system: &str) -> Result<(), String> {
     Err(msg.to_string())
 }
 
+/// Tools every source build needs before its recipe (git clone + cmake) can run.
+/// Returns the human-readable names of the ones that are missing from PATH.
+fn missing_build_tools() -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    if !which("git") {
+        missing.push("git");
+    }
+    if !which("cmake") {
+        missing.push("cmake");
+    }
+    if !which("make") && !which("ninja") {
+        missing.push("make or ninja");
+    }
+    if !which("cc") && !which("gcc") && !which("clang") {
+        missing.push("a C/C++ compiler (gcc)");
+    }
+    missing
+}
+
 /// Clone and build an emulator from its official source in a per-system cache dir.
 fn run_source_build(app: &AppHandle, def: &EmulatorDef) -> Result<(), String> {
+    // Preflight: without the base toolchain the recipe fails on an opaque
+    // "command not found", so report exactly what's missing and how to get it.
+    let missing = missing_build_tools();
+    if !missing.is_empty() {
+        let msg = format!(
+            "Missing build tools: {}.\nInstall the base toolchain once, then retry:\n    \
+             pkexec pacman -S --needed --noconfirm base-devel cmake git ninja",
+            missing.join(", ")
+        );
+        emit(app, def.system, &msg);
+        return Err(msg);
+    }
+
     let cache = app
         .path()
         .app_cache_dir()
@@ -142,7 +283,7 @@ fn run_source_build(app: &AppHandle, def: &EmulatorDef) -> Result<(), String> {
         let status = stream_command(
             app,
             def.system,
-            Command::new("sh").arg("-c").arg(step).current_dir(&cache),
+            syscmd::command("sh").arg("-c").arg(step).current_dir(&cache),
         )?;
         if !status {
             return Err(format!("source build step failed: {step}"));
@@ -160,7 +301,7 @@ fn run(
     cwd: Option<&std::path::Path>,
 ) -> Result<(), String> {
     emit(app, system, &format!("$ {program} {}", args.join(" ")));
-    let mut cmd = Command::new(program);
+    let mut cmd = syscmd::command(program);
     cmd.args(args);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);

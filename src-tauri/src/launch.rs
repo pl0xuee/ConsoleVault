@@ -3,6 +3,7 @@
 use crate::config::AppConfig;
 use crate::detect::{resolve_invocation, Invocation};
 use crate::registry;
+use crate::syscmd;
 use std::process::Command;
 
 /// Launch `rom_path` on `system`.
@@ -22,7 +23,7 @@ pub fn launch(config: &AppConfig, system: &str, rom_path: &str) -> Result<(), St
         let program = parts
             .next()
             .ok_or_else(|| "empty emulator override command".to_string())?;
-        let mut cmd = Command::new(program);
+        let mut cmd = syscmd::command(program);
         cmd.args(parts);
         cmd.arg(rom_path);
         return spawn(cmd, &def.emulator);
@@ -38,13 +39,13 @@ pub fn launch(config: &AppConfig, system: &str, rom_path: &str) -> Result<(), St
 
     let cmd = match invocation {
         Invocation::Native { program } => {
-            let mut cmd = Command::new(program);
+            let mut cmd = syscmd::command(&program);
             cmd.args(def.launch_args);
             cmd.arg(rom_path);
             cmd
         }
         Invocation::Flatpak { app_id } => {
-            let mut cmd = Command::new("flatpak");
+            let mut cmd = syscmd::command("flatpak");
             cmd.arg("run").arg(app_id);
             cmd.args(def.flatpak_launch_args);
             cmd.arg(rom_path);

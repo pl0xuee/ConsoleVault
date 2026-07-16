@@ -32,6 +32,12 @@ export interface InstallPlan {
   available_methods: InstallMethod[];
 }
 
+export interface UninstallPlan {
+  system: string;
+  emulator: string;
+  commands: string[];
+}
+
 export interface Game {
   system: string;
   title: string;
@@ -46,6 +52,10 @@ export const installPlan = (system: string, method?: InstallMethod) =>
   invoke<InstallPlan>("install_plan", { system, method: method ?? null });
 export const installEmulator = (system: string, method: InstallMethod) =>
   invoke<void>("install_emulator", { system, method });
+export const uninstallPlan = (system: string) =>
+  invoke<UninstallPlan>("uninstall_plan", { system });
+export const uninstallEmulator = (system: string) =>
+  invoke<void>("uninstall_emulator", { system });
 export const scanLibrary = () => invoke<Game[]>("scan_library");
 export const getBoxart = (system: string, title: string) =>
   invoke<string | null>("get_boxart", { system, title });

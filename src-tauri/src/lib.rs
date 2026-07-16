@@ -5,10 +5,11 @@ mod launch;
 mod metadata;
 mod registry;
 mod scan;
+mod syscmd;
 
 use config::AppConfig;
 use detect::EmulatorStatus;
-use install::{InstallMethod, InstallPlan};
+use install::{InstallMethod, InstallPlan, UninstallPlan};
 use scan::Game;
 use tauri::AppHandle;
 
@@ -48,6 +49,20 @@ async fn install_emulator(
     tauri::async_runtime::spawn_blocking(move || install::install(&app, &system, method))
         .await
         .map_err(|e| format!("install task failed: {e}"))?
+}
+
+/// Preview the uninstall commands for a system, based on what's installed now.
+#[tauri::command]
+fn uninstall_plan(app: AppHandle, system: String) -> Result<UninstallPlan, String> {
+    install::uninstall_plan(&app, &system)
+}
+
+/// Uninstall an emulator, streaming `install-log` events; resolves when finished.
+#[tauri::command]
+async fn uninstall_emulator(app: AppHandle, system: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || install::uninstall(&app, &system))
+        .await
+        .map_err(|e| format!("uninstall task failed: {e}"))?
 }
 
 /// Scan all configured ROM folders and return the classified game list.
@@ -91,6 +106,8 @@ pub fn run() {
             detect_emulators,
             install_plan,
             install_emulator,
+            uninstall_plan,
+            uninstall_emulator,
             scan_library,
             get_boxart,
             launch_game,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { getConfig, saveConfig, type AppConfig } from "./lib/ipc";
 import { Library } from "./views/Library";
 import { EmulatorSetup } from "./views/EmulatorSetup";
@@ -15,9 +16,11 @@ const NAV: { id: Tab; label: string }[] = [
 function App() {
   const [tab, setTab] = useState<Tab>("library");
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [version, setVersion] = useState("");
 
   useEffect(() => {
     getConfig().then(setConfig);
+    getVersion().then(setVersion).catch(() => {});
   }, []);
 
   const showWelcome = config !== null && !config.setup_complete;
@@ -42,6 +45,10 @@ function App() {
             {n.label}
           </button>
         ))}
+        {/* Version pinned to the bottom-left; Settings shows its own, so skip it there. */}
+        {version && tab !== "settings" && (
+          <div className="sidebar-version">v{version}</div>
+        )}
       </nav>
 
       <main className="content">

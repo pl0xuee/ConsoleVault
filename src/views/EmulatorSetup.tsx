@@ -4,9 +4,12 @@ import {
   detectEmulators,
   installEmulator,
   installPlan,
+  uninstallEmulator,
+  uninstallPlan,
   type EmulatorStatus,
   type InstallMethod,
   type InstallPlan,
+  type UninstallPlan,
 } from "../lib/ipc";
 
 const METHOD_LABEL: Record<InstallMethod, string> = {
@@ -19,6 +22,7 @@ export function EmulatorSetup() {
   const [statuses, setStatuses] = useState<EmulatorStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState<EmulatorStatus | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<EmulatorStatus | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -60,7 +64,12 @@ export function EmulatorSetup() {
           </div>
           {s.bios_required && <span className="pill bios">BIOS required</span>}
           {s.installed ? (
-            <span className="pill ok">Installed</span>
+            <>
+              <span className="pill ok">Installed</span>
+              <button className="danger" onClick={() => setRemoveTarget(s)}>
+                Uninstall
+              </button>
+            </>
           ) : (
             <>
               <span className="pill missing">Missing</span>
@@ -78,6 +87,17 @@ export function EmulatorSetup() {
           onClose={() => setTarget(null)}
           onDone={async () => {
             setTarget(null);
+            await refresh();
+          }}
+        />
+      )}
+
+      {removeTarget && (
+        <UninstallModal
+          status={removeTarget}
+          onClose={() => setRemoveTarget(null)}
+          onDone={async () => {
+            setRemoveTarget(null);
             await refresh();
           }}
         />
@@ -198,6 +218,103 @@ function InstallModal({
           </button>
           <button className="primary" onClick={run} disabled={running || !method}>
             {running ? "Installing…" : "Run install"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UninstallModal({
+  status,
+  onClose,
+  onDone,
+}: {
+  status: EmulatorStatus;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [plan, setPlan] = useState<UninstallPlan | null>(null);
+  const [running, setRunning] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const consoleRef = useRef<HTMLDivElement>(null);
+
+  // Load the preview of exactly what will be removed.
+  useEffect(() => {
+    let alive = true;
+    uninstallPlan(status.system)
+      .then((p) => alive && setPlan(p))
+      .catch((e) => alive && setError(String(e)));
+    return () => {
+      alive = false;
+    };
+  }, [status.system]);
+
+  // Uninstall reuses the shared `install-log` event stream.
+  useEffect(() => {
+    const un = listen<{ system: string; line: string }>("install-log", (ev) => {
+      if (ev.payload.system === status.system) {
+        setLog((prev) => [...prev, ev.payload.line]);
+      }
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [status.system]);
+
+  useEffect(() => {
+    consoleRef.current?.scrollTo(0, consoleRef.current.scrollHeight);
+  }, [log]);
+
+  const run = async () => {
+    setRunning(true);
+    setError(null);
+    setLog([]);
+    try {
+      await uninstallEmulator(status.system);
+      onDone();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const nothingToRemove = plan !== null && plan.commands.length === 0;
+
+  return (
+    <div className="modal-backdrop" onClick={running ? undefined : onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Uninstall {status.emulator}</h2>
+        <p className="muted">
+          This removes {status.emulator} using the sources it was installed from. Your ROMs, saves,
+          and BIOS files are not touched.
+        </p>
+
+        {nothingToRemove ? (
+          <p className="muted">Nothing to remove — {status.emulator} isn't installed via a source this app manages.</p>
+        ) : (
+          plan && <div className="cmds">{plan.commands.join("\n")}</div>
+        )}
+
+        {log.length > 0 && (
+          <div className="console" ref={consoleRef}>
+            {log.join("\n")}
+          </div>
+        )}
+        {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+
+        <div className="row end" style={{ marginTop: 16 }}>
+          <button onClick={onClose} disabled={running}>
+            Close
+          </button>
+          <button
+            className="danger"
+            onClick={run}
+            disabled={running || plan === null || nothingToRemove}
+          >
+            {running ? "Uninstalling…" : "Run uninstall"}
           </button>
         </div>
       </div>

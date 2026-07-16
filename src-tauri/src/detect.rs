@@ -1,9 +1,9 @@
 //! Detect which emulators are installed and how they can be launched.
 
 use crate::registry::{self, EmulatorDef};
+use crate::syscmd;
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::Command;
 
 /// How a detected emulator will be invoked.
 #[derive(Debug, Clone, Serialize)]
@@ -40,9 +40,20 @@ fn which(program: &str) -> Option<PathBuf> {
 }
 
 /// Whether a Flatpak app id is installed (`flatpak info <id>` succeeds).
-fn flatpak_installed(app_id: &str) -> bool {
-    Command::new("flatpak")
-        .args(["info", app_id])
+pub fn flatpak_installed(app_id: &str) -> bool {
+    flatpak_info(&["info", app_id])
+}
+
+/// Whether a Flatpak app id is installed in the per-user scope specifically —
+/// which is the only scope we install into, and thus the only one we uninstall.
+pub fn flatpak_installed_user(app_id: &str) -> bool {
+    flatpak_info(&["info", "--user", app_id])
+}
+
+/// Run `flatpak <args>` quietly and report whether it succeeded.
+fn flatpak_info(args: &[&str]) -> bool {
+    syscmd::command("flatpak")
+        .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
