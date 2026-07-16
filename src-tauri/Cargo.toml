@@ -1,6 +1,6 @@
 [package]
 name = "consolevault"
-version = "0.1.1"
+version = "0.1.2"
 description = "ConsoleVault — a library and launcher for your physical retro-game collection"
 authors = ["you"]
 edition = "2021"
