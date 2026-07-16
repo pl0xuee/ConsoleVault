@@ -229,34 +229,56 @@ fn ensure_flatpak(app: &AppHandle, system: &str) -> Result<(), String> {
     Err(msg.to_string())
 }
 
-/// Tools every source build needs before its recipe (git clone + cmake) can run.
-/// Returns the human-readable names of the ones that are missing from PATH.
-fn missing_build_tools() -> Vec<&'static str> {
+/// Tools a recipe needs, inferred from the programs its steps invoke. Returns the
+/// human-readable names of the ones missing from PATH, plus a pacman command that
+/// installs the packages providing them.
+fn missing_build_tools(steps: &[&str]) -> (Vec<&'static str>, String) {
+    let recipe = steps.join(" ");
     let mut missing = Vec::new();
-    if !which("git") {
-        missing.push("git");
+    let mut pkgs = Vec::new();
+
+    if recipe.contains("git ") {
+        pkgs.push("git");
+        if !which("git") {
+            missing.push("git");
+        }
     }
-    if !which("cmake") {
-        missing.push("cmake");
+    // Rust/Cargo recipes (e.g. gopher64).
+    if recipe.contains("cargo ") {
+        pkgs.push("rust");
+        if !which("cargo") {
+            missing.push("cargo (rust toolchain)");
+        }
     }
-    if !which("make") && !which("ninja") {
-        missing.push("make or ninja");
+    // CMake recipes need a generator and a C/C++ compiler too.
+    if recipe.contains("cmake ") {
+        pkgs.extend(["base-devel", "cmake", "ninja"]);
+        if !which("cmake") {
+            missing.push("cmake");
+        }
+        if !which("make") && !which("ninja") {
+            missing.push("make or ninja");
+        }
+        if !which("cc") && !which("gcc") && !which("clang") {
+            missing.push("a C/C++ compiler (gcc)");
+        }
     }
-    if !which("cc") && !which("gcc") && !which("clang") {
-        missing.push("a C/C++ compiler (gcc)");
-    }
-    missing
+
+    let install_cmd = format!(
+        "pkexec pacman -S --needed --noconfirm {}",
+        pkgs.join(" ")
+    );
+    (missing, install_cmd)
 }
 
 /// Clone and build an emulator from its official source in a per-system cache dir.
 fn run_source_build(app: &AppHandle, def: &EmulatorDef) -> Result<(), String> {
-    // Preflight: without the base toolchain the recipe fails on an opaque
+    // Preflight: without the right toolchain the recipe fails on an opaque
     // "command not found", so report exactly what's missing and how to get it.
-    let missing = missing_build_tools();
+    let (missing, install_cmd) = missing_build_tools(def.source_build.steps);
     if !missing.is_empty() {
         let msg = format!(
-            "Missing build tools: {}.\nInstall the base toolchain once, then retry:\n    \
-             pkexec pacman -S --needed --noconfirm base-devel cmake git ninja",
+            "Missing build tools: {}.\nInstall them once, then retry:\n    {install_cmd}",
             missing.join(", ")
         );
         emit(app, def.system, &msg);

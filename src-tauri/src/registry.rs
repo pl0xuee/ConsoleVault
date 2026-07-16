@@ -74,23 +74,25 @@ pub const EMULATORS: &[EmulatorDef] = &[
     EmulatorDef {
         system: "n64",
         system_label: "Nintendo 64",
-        emulator: "simple64",
+        // simple64 was renamed to gopher64 (its Flathub app is EOL-rebased to it),
+        // so that's what we install and detect. simple64-gui/mupen64plus stay as
+        // fallback binaries for machines that still have the older tools on PATH.
+        emulator: "gopher64",
         thumbnail_repo: "Nintendo - Nintendo 64",
-        // simple64 is not in the official repos; mupen64plus is the packaged alternative.
+        // gopher64 is not in the official repos; mupen64plus is the packaged alternative.
         pacman_pkg: None,
-        flatpak_id: Some("io.github.simple64.simple64"),
-        binaries: &["simple64-gui", "mupen64plus"],
+        flatpak_id: Some("io.github.gopher64.gopher64"),
+        binaries: &["gopher64", "simple64-gui", "mupen64plus"],
         launch_args: &[],
         flatpak_launch_args: &[],
         extensions: &["z64", "n64", "v64"],
         bios_required: false,
         source_build: SourceBuild {
-            repo_url: "https://github.com/simple64/simple64",
-            summary: "Build simple64 (GUI + mupen64plus + GLideN64) with CMake.",
+            repo_url: "https://github.com/gopher64/gopher64",
+            summary: "Build gopher64 (Rust) with Cargo. Needs the Rust toolchain and SDL3.",
             steps: &[
-                "git clone --depth 1 --recursive https://github.com/simple64/simple64 .",
-                "cmake -S . -B build -DCMAKE_BUILD_TYPE=Release",
-                "cmake --build build --parallel",
+                "git clone --depth 1 --recursive https://github.com/gopher64/gopher64.git .",
+                "cargo build --release",
             ],
         },
     },

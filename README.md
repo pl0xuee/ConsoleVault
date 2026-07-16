@@ -12,7 +12,7 @@ Built with Tauri 2 (Rust backend) + React/TypeScript, styled in a dark gunmetal-
 | System | Emulator    | Install source                                             |
 |--------|-------------|------------------------------------------------------------|
 | SNES   | Snes9x      | pacman `snes9x-gtk` · Flathub `com.snes9x.Snes9x`          |
-| N64    | simple64    | Flathub `io.github.simple64.simple64` (pacman `mupen64plus` alt) |
+| N64    | gopher64    | Flathub `io.github.gopher64.gopher64` (pacman `mupen64plus` alt) |
 | PS1    | DuckStation | Flathub `org.duckstation.DuckStation`                      |
 | PS2    | PCSX2       | pacman `pcsx2` · Flathub `net.pcsx2.PCSX2`                 |
 | PS3    | RPCS3       | Flathub `net.rpcs3.RPCS3`                                  |
