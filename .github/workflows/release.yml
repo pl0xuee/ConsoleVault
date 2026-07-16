@@ -53,7 +53,7 @@ jobs:
             || touch /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Checkout runs as root in the container; avoid git "dubious ownership".
       - name: Trust workspace
