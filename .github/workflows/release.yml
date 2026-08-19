@@ -43,7 +43,8 @@ jobs:
             webkit2gtk-4.1 gtk3 librsvg gdk-pixbuf2 \
             hicolor-icon-theme \
             patchelf openssl fuse2 \
-            xdg-utils desktop-file-utils shared-mime-info
+            xdg-utils desktop-file-utils shared-mime-info \
+            github-cli jq
           # Modern Arch gdk-pixbuf builds loaders in, so /usr/lib/gdk-pixbuf-2.0/2.10.0
           # doesn't exist unless an external loader package created it. The linuxdeploy
           # GTK plugin insists on copying that dir, so create it + a loaders cache.
@@ -79,3 +80,77 @@ jobs:
           # bundle.targets in tauri.conf.json is already ["appimage"]; this keeps
           # the CI intent explicit and future-proof if that changes.
           args: --bundles appimage
+
+      # linuxdeploy's GTK hook hard-codes `export GDK_BACKEND=x11`, citing a 2024
+      # WebKitGTK crash (tauri#8541). The hook is sourced by AppRun, so nothing
+      # outside the bundle can override it, and the cost is that every window is
+      # an XWayland window.
+      #
+      # Under a compositor with xwayland:force_zero_scaling, X clients are handed
+      # raw pixels and must scale themselves from one session-wide GDK_SCALE — a
+      # single integer shared by every X client on the desktop. That cannot be
+      # right on two monitors at different scales at once: the app draws at 2x on
+      # one screen or a fifth too small on another, and no per-window rule can fix
+      # it, because XWayland is one X server shared by all of them. A Wayland
+      # window is scaled per output by the compositor and follows a monitor change
+      # by itself. Verified against WebKitGTK 2.52.5: the crash does not
+      # reproduce and the window comes up Wayland-native.
+      #
+      # This runs after the build rather than inside it because tauri-action does
+      # build, sign and upload in one step. Repacking changes the bytes, so the
+      # signature it made no longer matches and the updater would refuse the
+      # download — hence the re-sign and the amended latest.json below.
+      #
+      # latest.json is edited rather than regenerated: tauri-action already wrote
+      # the asset URLs and platform keys, and only the signature is invalidated by
+      # the repack. Rewriting the whole file by hand is how you get a release that
+      # looks correct and an updater that 404s.
+      #
+      # The release is a draft, so none of this is visible until it is published
+      # by hand. If any of it fails the job fails and the draft is left alone.
+      - name: Repack the AppImage for the host's Wayland stack
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGETOOL_SHA256: "46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1"
+        run: |
+          set -euo pipefail
+          cd src-tauri/target/release/bundle/appimage
+          APP="$(ls ./*.AppImage)"
+          APP="${APP#./}"
+
+          ./"$APP" --appimage-extract >/dev/null
+          HOOK=squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh
+          grep -q '^export GDK_BACKEND=x11' "$HOOK" \
+            || { echo "::error::no forced GDK_BACKEND=x11 in the GTK hook — has linuxdeploy changed?"; exit 1; }
+          # A list rather than a bare `wayland` so an X11 session still starts,
+          # and defaulted rather than assigned so a regression can be worked
+          # around from the environment without unpacking the bundle.
+          sed -i 's|^export GDK_BACKEND=x11.*|export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"|' "$HOOK"
+
+          # Pinned, not "continuous": this tool repackages an AppImage that we
+          # then sign with our own key, so a retagged or compromised upstream
+          # build would be signed as legitimate and auto-installed by every user.
+          curl -sLo appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage
+          echo "$APPIMAGETOOL_SHA256  appimagetool" | sha256sum -c -
+          chmod +x appimagetool
+          rm -f "$APP" "$APP.sig"
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APP"
+          rm -rf squashfs-root appimagetool
+
+          cd "$GITHUB_WORKSPACE"
+          npx tauri signer sign "src-tauri/target/release/bundle/appimage/$APP"
+          SIG="$(cat "src-tauri/target/release/bundle/appimage/$APP.sig")"
+          test -n "$SIG" || { echo "::error::no signature written for $APP"; exit 1; }
+
+          gh release download "$GITHUB_REF_NAME" --pattern latest.json --output latest.json --clobber
+          jq --arg sig "$SIG" '.platforms |= with_entries(.value.signature = $sig)' \
+            latest.json > latest.json.new
+          mv latest.json.new latest.json
+          cat latest.json
+
+          gh release upload "$GITHUB_REF_NAME" \
+            "src-tauri/target/release/bundle/appimage/$APP" \
+            "src-tauri/target/release/bundle/appimage/$APP.sig" \
+            latest.json --clobber
